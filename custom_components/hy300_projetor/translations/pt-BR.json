@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HY300 Projetor",
+        "description": "Endereço IP do projetor (a API Lumina Go responde na porta 8899 com ele ligado).",
+        "data": {
+          "host": "Endereço IP",
+          "port": "Porta",
+          "name": "Nome"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Não consegui falar com o projetor. Ele está ligado e no Wi-Fi?",
+      "unknown": "Resposta inesperada do projetor."
+    },
+    "abort": {
+      "already_configured": "Este projetor já está configurado."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ligar por IR e ADB",
+        "description": "Com o projetor desligado a rede dele cai, então o 'ligar' vai por IR: escolha o remote (emissor de IR) e o nome do dispositivo/comando aprendido com remote.learn_command.",
+        "data": {
+          "ir_remote": "Emissor de IR (remote)",
+          "ir_device": "Dispositivo aprendido",
+          "ir_command": "Comando de ligar",
+          "ir_retry": "Reenviar o IR uma vez se o projetor não ligar em 75 s",
+          "adb_enabled": "Usar ADB (abrir apps e mostrar o app atual)",
+          "adb_server": "Servidor ADB (host)",
+          "adb_port": "Porta do servidor ADB"
+        }
+      }
+    }
+  }
+}

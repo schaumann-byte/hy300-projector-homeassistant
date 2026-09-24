@@ -1,0 +1,17 @@
+# ADB server next to Home Assistant. The projector's adbd (Android 14) only accepts
+# TLS connections from a *paired* key, which pure-Python ADB libraries can't do, so a
+# real `adb` server holds the key and the integration talks to it on :5037.
+# Put it on the same Docker network as Home Assistant (no port published to the LAN).
+services:
+  adb-server:
+    image: alpine:3
+    container_name: adb-server
+    restart: unless-stopped
+    command: sh -c "apk add --no-cache -q android-tools && exec adb -a -P 5037 nodaemon server"
+    volumes:
+      - ./adb:/root/.android        # adbkey / adbkey.pub (the paired key) + apks/
+    networks: [homeassistant]
+networks:
+  homeassistant:
+    external: true
+    name: YOUR_HOME_ASSISTANT_DOCKER_NETWORK

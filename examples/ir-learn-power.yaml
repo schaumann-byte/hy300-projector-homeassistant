@@ -1,0 +1,11 @@
+# Developer tools → Actions (YAML mode). Point the projector's remote at the IR blaster
+# and press POWER when the "Press the 'power' button" notification shows up.
+# Works with any remote entity that supports learning (e.g. Tuya IR/RF blasters via
+# tuya_local, Broadlink). Then set the same remote/device/command in the integration options.
+action: remote.learn_command
+target:
+  entity_id: remote.YOUR_IR_BLASTER
+data:
+  device: projector
+  command:
+    - power

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+# Android build
+android-adb-boot/.sdk/
+android-adb-boot/build/
+android-adb-boot/*.apk
+android-adb-boot/*.idsig
+# never commit signing keys
+*.keystore
+*.jks

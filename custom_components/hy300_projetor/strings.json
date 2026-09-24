@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HY300 Projector",
+        "description": "Projector IP address. The Lumina Go API answers on port 8899 while the projector is on.",
+        "data": {
+          "host": "IP address",
+          "port": "Port",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the projector. Is it on and connected to Wi-Fi?",
+      "unknown": "Unexpected answer from the projector."
+    },
+    "abort": {
+      "already_configured": "This projector is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "IR power-on and ADB",
+        "description": "While the projector is off its network is down, so power-on goes over IR: pick the remote entity (IR blaster) and the device/command learned with remote.learn_command. ADB (optional) lets Home Assistant open any app and show the app on screen.",
+        "data": {
+          "ir_remote": "IR blaster (remote entity)",
+          "ir_device": "Learned device name",
+          "ir_command": "Power command name",
+          "ir_retry": "Resend the IR once if the projector is not on after 75 s",
+          "adb_enabled": "Use ADB (open apps, show current app)",
+          "adb_server": "ADB server host",
+          "adb_port": "ADB server port"
+        }
+      }
+    }
+  }
+}
