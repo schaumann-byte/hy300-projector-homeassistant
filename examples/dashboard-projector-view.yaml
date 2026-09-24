@@ -3,7 +3,7 @@
 views:
   # ═════════════════════════════════════════════════════════════════════
   # ABA PROJETOR — integração própria hy300_projetor (~/hy300-projetor):
-  # API local Lumina Go (192.168.100.37:8899) + ligar por IR (ZC-XZ).
+  # API local Lumina Go (<projector-ip>:8899) + ligar por IR (ZC-XZ).
   # Controles só aparecem com o projetor ligado (API só responde ligado).
   # ═════════════════════════════════════════════════════════════════════
   - title: Projetor
