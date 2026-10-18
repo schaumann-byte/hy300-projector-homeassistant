@@ -75,6 +75,11 @@ The vendor "Developer options" menu only shows *ADB debug* and *USB debug*. The 
    ```
    Tip: the pairing port changes every time. If you can't read it, scan the projector for a newly opened port.
 5. Wireless debugging is **switched off on every reboot** (Android behaviour). Step 4 of the next section fixes that.
+6. Turn off the **ADB authorization timeout**. Otherwise Android revokes the pairing if the projector goes 7 days without an ADB connection (e.g. a two-week trip), and apps stop opening:
+   ```sh
+   adb -s <projector-ip>:5555 shell settings put global adb_allowed_connection_time 0
+   ```
+   This is the same as *Disable adb authorization timeout* in Developer options.
 
 Avoid *USB debugging* on this model: it disables USB peripherals.
 
@@ -123,8 +128,9 @@ Reserve the projector's and the IR blaster's IPs in your router's DHCP.
 |---|---|
 | Shows *off* while on | Check that `http://<ip>:8899/` loads. The IP may have changed. |
 | Doesn't turn on | Aim the IR blaster at the projector. After 2 attempts you get the "Projetor não ligou" notification. |
-| App tiles grey / "ADB not ready" | ADB comes back about 1 min after boot. Check `adb logcat -s AdbBoot` for `adb_wifi_enabled=1 (BOOT_COMPLETED)`. |
+| App tiles grey / "ADB not ready" | ADB comes back about 1 min after boot. Since v0.2.3, an app picked during that minute opens by itself once ADB is up (waits up to 150 s). Check `adb logcat -s AdbBoot` for `adb_wifi_enabled=1 (BOOT_COMPLETED)`. |
 | `adb connect` fails with no prompt on screen | The device answers `STLS`, so it needs pairing (section 1). |
+| "Projetor: ADB não conecta" notification / adb-server log shows `SSLV3_ALERT_CERTIFICATE_UNKNOWN` | The projector revoked the pairing (7 days without ADB). Pair again (section 1, step 4) and apply step 6 so it doesn't happen again. |
 | Vendor launcher still shows at boot | Make sure the `SYSTEM_ALERT_WINDOW` appop is allowed and your launcher is the default. |
 
 ## Notes / limitations
@@ -148,7 +154,7 @@ O app **ADB Boot** religa a depuração sem fio a cada boot, porque o Android 14
 
 Passo a passo:
 1. Instale o Projectivity para chegar nas configurações originais do Android e ativar a **Depuração sem fio**.
-2. Pareie com `adb pair`.
+2. Pareie com `adb pair` e desative o tempo limite de autorização do adb (`settings put global adb_allowed_connection_time 0`). Sem isso, o Android desfaz o pareamento depois de 7 dias sem uso.
 3. Suba o container `adb-server`.
 4. Aprenda a tecla POWER no emissor IR.
 5. Instale o ADB Boot, conceda as permissões e adicione a integração no HA.

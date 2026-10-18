@@ -22,7 +22,11 @@ from homeassistant.util import dt as dt_util
 from .adb import AdbClient, AdbError
 from .api import ProjectorApi, ProjectorError, ProjectorOffline
 from .const import (
+    ADB_BACKOFF_MAX,
     ADB_DEVICE_PORT,
+    ADB_LAUNCH_POLL,
+    ADB_LAUNCH_WAIT,
+    ADB_UNPAIRED_AFTER,
     CONF_ADB_ENABLED,
     CONF_ADB_PORT,
     CONF_ADB_SERVER,
@@ -72,6 +76,13 @@ class ProjectorCoordinator(DataUpdateCoordinator[ProjectorData]):
         self._optimistic: bool | None = None
         self._optimistic_until: datetime | None = None
         self._power_on_task: asyncio.Task | None = None
+        self._launch_task: asyncio.Task | None = None
+        # When the API last came up (real reachability, not the optimistic state).
+        self._online_since: datetime | None = None
+        self._adb_failures = 0
+        self._adb_next_try: datetime | None = None
+        self._adb_unpaired_notified = False
+        self._last_adb_error: str | None = None
         opts = entry.options
         self.adb: AdbClient | None = None
         if opts.get(CONF_ADB_ENABLED):
@@ -186,7 +197,127 @@ class ProjectorCoordinator(DataUpdateCoordinator[ProjectorData]):
 
     async def async_shutdown(self) -> None:
         self._cancel_power_on_check()
+        if self._launch_task and not self._launch_task.done():
+            self._launch_task.cancel()
         await super().async_shutdown()
+
+    # --- ADB -------------------------------------------------------------------------
+
+    @property
+    def booting(self) -> bool:
+        """True right after power-on, while ADB Boot may not have enabled ADB yet."""
+        if self._power_on_task and not self._power_on_task.done():
+            return True
+        if self._online_since is None:
+            return self._optimistic is True
+        return dt_util.utcnow() - self._online_since < ADB_UNPAIRED_AFTER
+
+    def _adb_succeeded(self) -> None:
+        self._adb_failures = 0
+        self._adb_next_try = None
+        self._last_adb_error = None
+        if self._adb_unpaired_notified:
+            self._adb_unpaired_notified = False
+            persistent_notification.async_dismiss(self.hass, f"{DOMAIN}_adb_unpaired")
+
+    def _adb_failed(self, err: AdbError) -> None:
+        self._adb_failures += 1
+        self._last_adb_error = str(err)
+        delay = min(SCAN_INTERVAL * (2 ** (self._adb_failures - 1)), ADB_BACKOFF_MAX)
+        self._adb_next_try = dt_util.utcnow() + delay
+        if (
+            not self._adb_unpaired_notified
+            and self._online_since is not None
+            and dt_util.utcnow() - self._online_since >= ADB_UNPAIRED_AFTER
+        ):
+            self._adb_unpaired_notified = True
+            _LOGGER.warning(
+                "Projector on for %s s but ADB still fails (%s); pairing probably revoked",
+                int(ADB_UNPAIRED_AFTER.total_seconds()),
+                err,
+            )
+            persistent_notification.async_create(
+                self.hass,
+                "O projetor está ligado, mas o Home Assistant não consegue falar com ele "
+                "por ADB, então os apps (SmartTube, Stremio, Crunchyroll) não abrem.\n\n"
+                "Causa mais comum: o Android revogou o pareamento da depuração por Wi-Fi "
+                "(isso acontece quando o projetor fica 7 dias sem conectar).\n\n"
+                "Para refazer: no projetor, abra Configurações do Android → Opções do "
+                "desenvolvedor → Depuração por Wi-Fi → Parear dispositivo com código de "
+                "pareamento. No servidor, rode "
+                f"`docker exec adb-server adb pair {self.config_entry.data['host']}:<porta> <código>` "
+                "com a porta e o "
+                "código mostrados. Para não acontecer de novo, ative "
+                "\"Desativar o tempo limite de autorização do adb\" nas Opções do "
+                f"desenvolvedor.\n\nÚltimo erro: {err}",
+                title="Projetor: ADB não conecta",
+                notification_id=f"{DOMAIN}_adb_unpaired",
+            )
+
+    async def _async_poll_adb(self) -> tuple[str | None, bool]:
+        """Current app via ADB, skipping attempts while backing off after failures."""
+        assert self.adb is not None
+        if self._adb_next_try and dt_util.utcnow() < self._adb_next_try:
+            return None, False
+        try:
+            package = await self.adb.async_current_package()
+        except AdbError as err:
+            _LOGGER.debug("ADB current app failed: %s", err)
+            self._adb_failed(err)
+            return None, False
+        self._adb_succeeded()
+        return package, True
+
+    async def async_launch_app(self, package: str, label: str) -> None:
+        """Open an app now, or as soon as ADB is up if the projector is still booting."""
+        if self.adb is None:
+            raise HomeAssistantError(f"{label} precisa do ADB ativado nas opções")
+        if self._launch_task and not self._launch_task.done():
+            self._launch_task.cancel()
+        try:
+            await self.adb.async_launch(package)
+        except AdbError as err:
+            self._adb_failed(err)
+            if not self.booting:
+                raise HomeAssistantError(
+                    f"Falha ao abrir {label}: o projetor não aceitou a conexão ADB ({err}). "
+                    "Se ele já está ligado há mais de 3 minutos, o pareamento ADB "
+                    "provavelmente expirou; veja a notificação \"Projetor: ADB não conecta\"."
+                ) from err
+            _LOGGER.debug("ADB not ready yet (%s); will open %s when it is", err, label)
+            self._launch_task = self.hass.async_create_background_task(
+                self._async_launch_when_ready(package, label), f"{DOMAIN}_launch_{package}"
+            )
+            return
+        self._adb_succeeded()
+
+    async def _async_launch_when_ready(self, package: str, label: str) -> None:
+        assert self.adb is not None
+        deadline = dt_util.utcnow() + ADB_LAUNCH_WAIT
+        last_err: AdbError | None = None
+        while dt_util.utcnow() < deadline:
+            await asyncio.sleep(ADB_LAUNCH_POLL)
+            if self.data and not self.data.online and self._optimistic is not True:
+                _LOGGER.debug("Projector went off; dropping pending launch of %s", label)
+                return
+            try:
+                await self.adb.async_launch(package)
+            except AdbError as err:
+                last_err = err
+                continue
+            _LOGGER.debug("Opened %s after waiting for ADB", label)
+            self._adb_succeeded()
+            await self.async_request_refresh()
+            return
+        _LOGGER.warning("Gave up opening %s: ADB never became ready (%s)", label, last_err)
+        persistent_notification.async_create(
+            self.hass,
+            f"Não deu para abrir {label}: o ADB não ficou pronto em "
+            f"{int(ADB_LAUNCH_WAIT.total_seconds())} s depois de ligar o projetor.\n\n"
+            f"Último erro: {last_err}",
+            title="Projetor: app não abriu",
+            notification_id=f"{DOMAIN}_launch_failed",
+        )
 
     async def _async_update_data(self) -> ProjectorData:
         try:
@@ -200,6 +331,14 @@ class ProjectorCoordinator(DataUpdateCoordinator[ProjectorData]):
             online = True
             self.device_info_cache = device
 
+        if online and self._online_since is None:
+            self._online_since = dt_util.utcnow()
+            # Fresh boot: try ADB right away instead of waiting out an old backoff.
+            self._adb_failures = 0
+            self._adb_next_try = None
+        elif not online:
+            self._online_since = None
+
         if self._optimistic is not None and self._optimistic_until is not None:
             if dt_util.utcnow() < self._optimistic_until and online != self._optimistic:
                 online = self._optimistic
@@ -210,11 +349,7 @@ class ProjectorCoordinator(DataUpdateCoordinator[ProjectorData]):
         package = None
         adb_ok = False
         if online and self.adb and device:
-            try:
-                package = await self.adb.async_current_package()
-                adb_ok = True
-            except AdbError as err:
-                _LOGGER.debug("ADB current app failed: %s", err)
+            package, adb_ok = await self._async_poll_adb()
 
         return ProjectorData(
             online=online,

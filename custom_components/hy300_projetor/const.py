@@ -55,6 +55,16 @@ CONF_ADB_PORT: Final = "adb_port"
 DEFAULT_ADB_SERVER: Final = "adb-server"
 DEFAULT_ADB_PORT: Final = 5037
 ADB_DEVICE_PORT: Final = 5555
+# The ADB Boot app turns wireless debugging on ~1 min after power-on. An app asked for
+# before that is launched as soon as ADB answers, waiting at most this long.
+ADB_LAUNCH_WAIT: Final = timedelta(seconds=150)
+ADB_LAUNCH_POLL: Final = 5
+# Projector on for this long and ADB still failing → most likely the pairing was revoked
+# (Android drops wireless-debugging keys unused for 7 days) → notify the user.
+ADB_UNPAIRED_AFTER: Final = timedelta(seconds=180)
+# While ADB keeps failing, poll it less often (each failed TLS handshake costs the
+# adb server; it crashed in a loop on 17/10 while being hammered every 10 s).
+ADB_BACKOFF_MAX: Final = timedelta(seconds=60)
 
 # "Sources" offered by the media player: label -> ("app", package) launched via ADB,
 # or ("cmd", Lumina Go command) sent over the HTTP API.
