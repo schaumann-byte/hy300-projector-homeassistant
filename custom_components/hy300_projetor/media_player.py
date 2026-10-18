@@ -19,7 +19,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ProjectorConfigEntry
-from .adb import AdbError
 from .api import ProjectorError
 from .const import SOURCE_FALLBACK_CMD, SOURCES
 from .entity import ProjectorEntity
@@ -142,16 +141,11 @@ class ProjectorMediaPlayer(ProjectorEntity, MediaPlayerEntity):
             if self.coordinator.adb:
                 if not self.coordinator.data.online:
                     raise HomeAssistantError("O projetor está desligado")
-                try:
-                    await self.coordinator.adb.async_launch(value)
-                except AdbError as err:
-                    if source in SOURCE_FALLBACK_CMD:
-                        # ADB not ready yet (e.g. right after boot): use the vendor shortcut
-                        await self._send(SOURCE_FALLBACK_CMD[source])
-                    else:
-                        raise HomeAssistantError(
-                            f"Falha ao abrir {source}: o ADB ainda não está pronto ({err})"
-                        ) from err
+                if source in SOURCE_FALLBACK_CMD and self.coordinator.booting:
+                    # ADB not ready yet right after boot: the vendor shortcut works now
+                    await self._send(SOURCE_FALLBACK_CMD[source])
+                else:
+                    await self.coordinator.async_launch_app(value, source)
             elif source in SOURCE_FALLBACK_CMD:
                 await self._send(SOURCE_FALLBACK_CMD[source])
             else:
